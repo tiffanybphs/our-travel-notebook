@@ -1,0 +1,9 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+body {
+  margin: 0;
+  font-family: 'Zen Maru Gothic', sans-serif;
+  background-color: #FFF9E3;
+}
