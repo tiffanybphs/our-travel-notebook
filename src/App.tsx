@@ -3,238 +3,214 @@ import { createClient } from '@supabase/supabase-js';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   MapPin, Navigation, Clock, Calendar, Plus, Trash2, 
-  Save, Camera, Target, Info, ChevronDown, Map, Car, Train, Bus, Footprints
+  Save, Camera, Target, ChevronDown, Map, Car, Train, Bus, 
+  Footprints, Plane, Ship, Info, ExternalLink, Link2, ShoppingBag, PieChart, Heart
 } from 'lucide-react';
 
-// 初始化 Supabase (Vercel 環境變數)
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || '';
-const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || '';
+// 初始化 Supabase 
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL || "";
+const supabaseKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "";
 const supabase = createClient(supabaseUrl, supabaseKey);
 
 export default function App() {
   const [loading, setLoading] = useState(true);
-  const [showEditor, setShowEditor] = useState<'spot' | 'transport' | null>(null);
+  const [activeTab, setActiveTab] = useState('行程');
   const [schedules, setSchedules] = useState<any[]>([]);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   useEffect(() => {
-    // 啟動畫面停留 2.5 秒
     const timer = setTimeout(() => setLoading(false), 2500);
     return () => clearTimeout(timer);
   }, []);
 
+  // 時間連動運算邏輯
+  const calculateEndTime = (start: string, duration: string) => {
+    if (!start || !duration) return "";
+    try {
+      const [sH, sM] = start.split(':').map(Number);
+      const [dH, dM] = duration.split(':').map(Number);
+      let totalM = sM + dM;
+      let totalH = sH + dH + Math.floor(totalM / 60);
+      return `${String(totalH % 24).padStart(2, '0')}:${String(totalM % 60).padStart(2, '0')}`;
+    } catch { return ""; }
+  };
+
   if (loading) {
     return (
-      <motion.div className="fixed inset-0 z-[9999] bg-[#FFF9E3] flex items-center justify-center">
-        <motion.img 
-          src="/splash.jpeg" 
-          initial={{ opacity: 0 }} 
-          animate={{ opacity: 1 }} 
-          exit={{ opacity: 0 }}
-          className="w-full h-full object-cover" 
-        />
-      </motion.div>
+      <div className="fixed inset-0 z-[9999] bg-[#FFF9E3] flex items-center justify-center">
+        {/* 使用妳指定的 splash.jpeg */}
+        <img src="/splash.jpeg" className="w-full h-full object-cover" alt="Splash" />
+      </div>
     );
   }
 
   return (
     <div className="min-h-screen bg-[#FFF9E3] font-maru text-[#8D775F] pb-32">
-      <header className="bg-white p-6 rounded-b-[30px] shadow-sm text-center border-b border-[#FFD1DC]/30">
-        <h1 className="text-2xl font-bold text-[#FFD1DC]">🌸 Our Travel Diary 🌸</h1>
-        <p className="text-[10px] mt-1 opacity-50 tracking-widest">TIFFANY & BENJAMIN</p>
+      {/* Header */}
+      <header className="bg-white p-6 rounded-b-[40px] shadow-sm text-center border-b border-[#FFD1DC]/30">
+        <h1 className="text-2xl font-bold text-[#FFD1DC]">🌸 Our Travel Diary</h1>
+        <p className="text-[10px] mt-1 opacity-50 tracking-[0.2em]">TIFFANY & BENJAMIN</p>
       </header>
 
-      <main className="p-4 max-w-md mx-auto space-y-4">
-        {schedules.length === 0 && (
-          <div className="text-center py-20 opacity-30 italic">點擊下方按鈕開始記錄旅程...</div>
-        )}
-        
-        {schedules.map((item, idx) => (
-          <ScheduleCard key={idx} item={item} />
+      {/* 常駐置頂 Tabs */}
+      <div className="sticky top-0 z-40 bg-[#FFF9E3]/90 backdrop-blur-md px-2 py-3 flex justify-around border-b border-[#FFD1DC]/20">
+        {['行程', '導航', '憑證', '清單', '記帳'].map(tab => (
+          <button 
+            key={tab} 
+            onClick={() => setActiveTab(tab)}
+            className={`px-4 py-2 text-xs font-bold rounded-full transition-all ${activeTab === tab ? 'bg-[#FFD1DC] text-white shadow-md scale-105' : 'opacity-40'}`}
+          >
+            {tab}
+          </button>
         ))}
+      </div>
+
+      <main className="p-4 max-w-md mx-auto space-y-4">
+        {activeTab === '行程' && (
+          <>
+            {schedules.map((item) => (
+              <ScheduleCard 
+                key={item.id} 
+                item={item} 
+                isEditing={editingId === item.id}
+                onToggle={() => setEditingId(editingId === item.id ? null : item.id)}
+                onUpdate={(data: any) => {
+                  setSchedules(schedules.map(s => s.id === item.id ? { ...s, ...data } : s));
+                }}
+                calculateEndTime={calculateEndTime}
+              />
+            ))}
+            {/* 待編入行程區 (浮動感) */}
+            <div className="mt-10 pt-10 border-t-2 border-dashed border-[#FFD1DC]/30">
+               <p className="text-center text-xs opacity-40 mb-4 italic">--- 待編入行程區 ---</p>
+            </div>
+          </>
+        )}
       </main>
 
-      {/* 底部導覽按鈕 */}
-      <div className="fixed bottom-8 left-0 w-full flex justify-center gap-4 px-10 z-50">
+      {/* 右下角新增按鈕 */}
+      <div className="fixed bottom-24 right-6 flex flex-col gap-3">
         <button 
-          onClick={() => setShowEditor('spot')}
-          className="flex-1 bg-white border-2 border-[#FFD1DC] text-[#FFD1DC] h-14 rounded-full shadow-lg flex items-center justify-center gap-2 font-bold active:scale-95 transition-all"
+          onClick={() => {
+            const newItem = { id: Date.now().toString(), type: 'spot', title: '', date: '2026/01/01', startTime: '09:00', duration: '01:00', endTime: '10:00', segments: [] };
+            setSchedules([newItem, ...schedules]);
+            setEditingId(newItem.id);
+          }}
+          className="w-14 h-14 bg-[#FFD1DC] text-white rounded-full shadow-xl flex items-center justify-center active:scale-90 transition-all z-50"
         >
-          <MapPin size={20} /> 景點
-        </button>
-        <button 
-          onClick={() => setShowEditor('transport')}
-          className="flex-1 bg-[#FFD1DC] text-white h-14 rounded-full shadow-lg flex items-center justify-center gap-2 font-bold active:scale-95 transition-all"
-        >
-          <Navigation size={20} /> 交通
+          <Plus size={30} />
         </button>
       </div>
 
-      <AnimatePresence>
-        {showEditor && (
-          <EditorDrawer 
-            type={showEditor} 
-            onClose={() => setShowEditor(null)} 
-            onSave={(data) => setSchedules([data, ...schedules])} 
-          />
-        )}
-      </AnimatePresence> {/* 修改為這個正確的標籤 */}
+      {/* Safety Render 區 */}
+      <footer className="text-center py-10 opacity-30 text-[10px]">🌸 Tiffany & Benjamin 🌸</footer>
+
+      {/* 置底導航欄 (像原生 App) */}
+      <nav className="fixed bottom-0 w-full bg-white h-20 border-t border-gray-100 flex items-center justify-around px-6 z-40">
+        <Navigation size={24} className="opacity-20" />
+        <Calendar size={24} className="text-[#FFD1DC]" />
+        <ShoppingBag size={24} className="opacity-20" />
+        <PieChart size={24} className="opacity-20" />
+        <Heart size={24} className="opacity-20" />
+      </nav>
     </div>
   );
 }
 
-// --- 行程卡片組件 ---
-function ScheduleCard({ item }: { item: any }) {
-  const isTransport = item.category === '交通';
+// --- 行程卡片組件 (含向下展開邏輯) ---
+function ScheduleCard({ item, isEditing, onToggle, onUpdate, calculateEndTime }: any) {
+  const isTransport = item.type === 'transport';
+
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }}
-      className={`p-5 rounded-[25px] shadow-sm border ${isTransport ? 'bg-[#E0F2FE] border-[#bae6fd]' : 'bg-white border-[#FFD1DC]/20'}`}
-    >
-      <div className="flex justify-between items-start mb-2">
-        <div className="flex flex-col">
-          <span className="text-[10px] font-bold opacity-60">{item.date}</span>
-          <span className="text-xs font-bold text-[#FFD1DC]">{item.startTime} - {item.endTime}</span>
-        </div>
-        <span className="text-[10px] opacity-40 italic">{item.duration}</span>
-      </div>
-      
-      <h3 className="font-bold text-lg mb-2">{item.title}</h3>
-      
-      {isTransport ? (
-        <div className="space-y-2 text-xs opacity-80">
+    <div className={`bg-white rounded-[30px] shadow-sm border transition-all ${isEditing ? 'border-[#FFD1DC]' : 'border-transparent'}`}>
+      {/* 點擊展開的預覽頭部 */}
+      <div className="p-5 cursor-pointer" onClick={onToggle}>
+        <div className="flex justify-between items-center mb-2">
           <div className="flex items-center gap-2">
-            <div className="p-1 bg-white rounded-md">🚩 {item.startLocation}</div>
-            <span>➜</span>
-            <div className="p-1 bg-white rounded-md">🏁 {item.endLocation}</div>
+            <Clock size={14} className="text-[#FFD1DC]" />
+            <span className="text-xs font-bold">{item.startTime} - {item.endTime}</span>
           </div>
-          {item.segments?.length > 0 && (
-            <div className="bg-white/40 p-2 rounded-lg space-y-1">
-              {item.segments.map((seg: any, i: number) => (
-                <div key={i} className="flex gap-2 items-center text-[10px]">
-                  <span className="bg-blue-500 text-white px-1 rounded">{seg.mode}</span>
-                  <span>{seg.from} ➜ {seg.to}</span>
-                </div>
-              ))}
-            </div>
-          )}
+          <ChevronDown className={`transition-transform duration-300 ${isEditing ? 'rotate-180' : ''}`} size={18} />
         </div>
-      ) : (
-        <div className="grid grid-cols-2 gap-y-2 text-[10px] opacity-70 border-t border-[#FFD1DC]/10 pt-2 mt-2">
-          <p className="flex items-center gap-1"><MapPin size={10}/> {item.location} ({item.area})</p>
-          <p className="flex items-center gap-1"><Target size={10}/> {item.goal}</p>
-          <p className="flex items-center gap-1"><Camera size={10}/> {item.photoRef}</p>
-          <p className="flex items-center gap-1"><Clock size={10}/> {item.openingHours}</p>
-          {item.mapUrl && <a href={item.mapUrl} className="col-span-2 text-blue-400 underline">查看 Google Map</a>}
-        </div>
-      )}
-    </motion.div>
-  );
-}
-
-// --- 萬能編輯器 ---
-function EditorDrawer({ type, onClose, onSave }: any) {
-  const [form, setForm] = useState<any>({
-    title: '', date: '2026/01/01', startTime: '09:00', duration: '01:00', endTime: '10:00',
-    location: '', category: type === 'spot' ? '景點活動' : '交通',
-    area: '', photoRef: '', goal: '', note: '', openingHours: '', mapUrl: '',
-    startLocation: '', endLocation: '', transportMode: '地鐵', segments: []
-  });
-
-  useEffect(() => {
-    const [h, m] = form.startTime.split(':').map(Number);
-    const [dh, dm] = form.duration.split(':').map(Number);
-    let eh = h + dh; let em = m + dm;
-    if (em >= 60) { eh += Math.floor(em/60); em %= 60; }
-    setForm((f:any) => ({ ...f, endTime: `${String(eh % 24).padStart(2, '0')}:${String(em).padStart(2, '0')}` }));
-  }, [form.startTime, form.duration]);
-
-  const addSegment = () => {
-    setForm({...form, segments: [...form.segments, { mode: '地鐵', from: '', to: '' }]});
-  };
-
-  return (
-    <motion.div 
-      initial={{ y: '100%' }} animate={{ y: 0 }} exit={{ y: '100%' }}
-      className="fixed inset-0 z-[100] bg-white rounded-t-[40px] shadow-2xl p-8 overflow-y-auto"
-    >
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-xl font-bold">{type === 'spot' ? '🌸 新增景點' : '🚌 新增交通'}</h2>
-        <button onClick={onClose} className="p-2 bg-gray-100 rounded-full">✕</button>
+        <h3 className="text-lg font-bold">{item.title || (isTransport ? `${item.startLoc} ➜ ${item.endLoc}` : "新行程")}</h3>
       </div>
 
-      <div className="space-y-5 pb-20">
-        <div className="border-b-2 border-[#FFD1DC] pb-1">
-          <label className="text-[10px] font-bold opacity-40">行程名稱</label>
-          <input className="w-full bg-transparent outline-none text-lg font-bold" value={form.title} onChange={e => setForm({...form, title: e.target.value})} />
-        </div>
+      {/* 向下展開的編輯區 */}
+      <AnimatePresence>
+        {isEditing && (
+          <motion.div 
+            initial={{ height: 0, opacity: 0 }} 
+            animate={{ height: 'auto', opacity: 1 }} 
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden border-t border-gray-50"
+          >
+            <div className="p-6 bg-[#FFF9E3]/20 space-y-4">
+              {/* 類型切換 */}
+              <div className="flex bg-white rounded-xl p-1 shadow-inner">
+                <button onClick={() => onUpdate({type: 'spot'})} className={`flex-1 py-2 text-xs rounded-lg ${!isTransport ? 'bg-[#FFD1DC] text-white' : ''}`}>景點/活動</button>
+                <button onClick={() => onUpdate({type: 'transport'})} className={`flex-1 py-2 text-xs rounded-lg ${isTransport ? 'bg-blue-400 text-white' : ''}`}>交通</button>
+              </div>
 
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-[#FFF9E3] p-3 rounded-2xl">
-            <label className="text-[10px] font-bold opacity-40 block">日期 (yyyy/mm/dd)</label>
-            <input className="bg-transparent w-full text-sm outline-none" value={form.date} onChange={e => setForm({...form, date: e.target.value})} />
-          </div>
-          <div className="bg-[#FFF9E3] p-3 rounded-2xl">
-            <label className="text-[10px] font-bold opacity-40 block">時間 (24h)</label>
-            <input type="time" className="bg-transparent w-full text-sm outline-none" value={form.startTime} onChange={e => setForm({...form, startTime: e.target.value})} />
-          </div>
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="bg-[#FFF9E3] p-3 rounded-2xl">
-            <label className="text-[10px] font-bold opacity-40 block">時長 (hh:mm)</label>
-            <input className="bg-transparent w-full text-sm outline-none" value={form.duration} onChange={e => setForm({...form, duration: e.target.value})} />
-          </div>
-          <div className="flex items-center text-xs font-bold text-[#FFD1DC]">
-            預計完結：{form.endTime}
-          </div>
-        </div>
-
-        {type === 'spot' ? (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <input placeholder="地點" className="bg-[#FFF9E3] p-3 rounded-2xl text-sm" onChange={e => setForm({...form, location: e.target.value})} />
-              <input placeholder="區域/商圈" className="bg-[#FFF9E3] p-3 rounded-2xl text-sm" onChange={e => setForm({...form, area: e.target.value})} />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <input placeholder="照片編號" className="bg-[#FFF9E3] p-3 rounded-2xl text-sm" onChange={e => setForm({...form, photoRef: e.target.value})} />
-              <input placeholder="行程目標" className="bg-[#FFF9E3] p-3 rounded-2xl text-sm" onChange={e => setForm({...form, goal: e.target.value})} />
-            </div>
-            <input placeholder="營業時間" className="w-full bg-[#FFF9E3] p-3 rounded-2xl text-sm" onChange={e => setForm({...form, openingHours: e.target.value})} />
-            <input placeholder="Google Map 網址" className="w-full bg-[#FFF9E3] p-3 rounded-2xl text-xs" onChange={e => setForm({...form, mapUrl: e.target.value})} />
-          </div>
-        ) : (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-4">
-              <input placeholder="起始地" className="bg-[#E0F2FE] p-3 rounded-2xl text-sm" onChange={e => setForm({...form, startLocation: e.target.value})} />
-              <input placeholder="目的地" className="bg-[#E0F2FE] p-3 rounded-2xl text-sm" onChange={e => setForm({...form, endLocation: e.target.value})} />
-            </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-bold opacity-40">多段行程設定</label>
-              {form.segments.map((seg: any, i: number) => (
-                <div key={i} className="flex gap-2 items-center bg-gray-50 p-2 rounded-xl">
-                   <input placeholder="模式" className="w-16 bg-white p-1 rounded text-[10px]" onChange={e => {
-                     const s = [...form.segments]; s[i].mode = e.target.value; setForm({...form, segments: s});
-                   }} />
-                   <input placeholder="從" className="flex-1 bg-white p-1 rounded text-[10px]" onChange={e => {
-                     const s = [...form.segments]; s[i].from = e.target.value; setForm({...form, segments: s});
-                   }} />
-                   <input placeholder="到" className="flex-1 bg-white p-1 rounded text-[10px]" onChange={e => {
-                     const s = [...form.segments]; s[i].to = e.target.value; setForm({...form, segments: s});
-                   }} />
+              {item.type === 'spot' ? (
+                <div className="grid grid-cols-1 gap-3">
+                  <input placeholder="行程名稱*" className="input-f" value={item.title} onChange={e => onUpdate({title: e.target.value})} />
+                  <div className="grid grid-cols-2 gap-2">
+                    <input type="date" className="input-f" value={item.date} onChange={e => onUpdate({date: e.target.value})} />
+                    <input type="time" className="input-f" value={item.startTime} onChange={e => {
+                      const endTime = calculateEndTime(e.target.value, item.duration);
+                      onUpdate({startTime: e.target.value, endTime});
+                    }} />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input placeholder="時長 (hh:mm)" className="input-f" value={item.duration} onChange={e => {
+                      const endTime = calculateEndTime(item.startTime, e.target.value);
+                      onUpdate({duration: e.target.value, endTime});
+                    }} />
+                    <input placeholder="完結時間" className="input-f bg-gray-50" value={item.endTime} readOnly />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input placeholder="地點" className="input-f" />
+                    <input placeholder="區域/商圈" className="input-f" />
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <select className="input-f"><option>吃喝</option><option>購物</option><option>精品</option><option>拍照錄影</option></select>
+                    <input placeholder="照片編號" className="input-f" />
+                  </div>
+                  <input placeholder="Google Map URL" className="input-f" />
                 </div>
-              ))}
-              <button onClick={addSegment} className="w-full py-2 border-2 border-dashed border-blue-200 rounded-xl text-blue-400 text-[10px]">+ 增加一段轉乘</button>
+              ) : (
+                /* 交通卡片 - 多段描述 */
+                <div className="space-y-4">
+                  <div className="flex gap-2 items-center">
+                    <input placeholder="起始地" className="input-f flex-1" value={item.startLoc} />
+                    <span>➜</span>
+                    <input placeholder="終點地" className="input-f flex-1" value={item.endLoc} />
+                  </div>
+                  <div className="space-y-3 pl-2 border-l-2 border-blue-200">
+                    <p className="text-[10px] font-bold text-blue-400">分段轉乘路徑：</p>
+                    {item.segments?.map((s: any, idx: number) => (
+                       <div key={idx} className="bg-white p-3 rounded-2xl shadow-sm space-y-2">
+                          <select className="input-f text-xs"><option>地鐵</option><option>步行</option><option>巴士</option></select>
+                          <input placeholder="路線名稱 (往 XX 方向)" className="input-f text-xs" />
+                          <div className="flex gap-2">
+                            <input placeholder="上車站" className="input-f text-xs" />
+                            <input placeholder="下車站" className="input-f text-xs" />
+                          </div>
+                       </div>
+                    ))}
+                    <button className="w-full py-2 border-2 border-dashed border-blue-100 rounded-2xl text-blue-300 text-[10px]">+ 增加一段轉乘</button>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-2 pt-4">
+                <button className="flex-1 bg-[#8D775F] text-white py-4 rounded-full font-bold shadow-lg flex items-center justify-center gap-2"><Save size={18}/> 儲存卡片</button>
+                <button className="w-14 bg-red-50 text-red-400 rounded-full flex items-center justify-center border border-red-100"><Trash2 size={18}/></button>
+              </div>
             </div>
-          </div>
+          </motion.div>
         )}
-
-        <button 
-          onClick={() => { onSave(form); onClose(); }}
-          className="w-full bg-[#8D775F] text-white py-4 rounded-full font-bold shadow-xl active:scale-95 transition-all"
-        >
-          確認儲存 🌸
-        </button>
-      </div>
-    </motion.div>
+      </AnimatePresence>
+    </div>
   );
 }
