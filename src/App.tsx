@@ -77,7 +77,7 @@ export default function App() {
             onSave={(data) => setSchedules([data, ...schedules])} 
           />
         )}
-      </AnPresence>
+      </AnimatePresence> {/* 修改為這個正確的標籤 */}
     </div>
   );
 }
