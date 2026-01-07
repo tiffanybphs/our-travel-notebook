@@ -2,8 +2,48 @@
 @tailwind components;
 @tailwind utilities;
 
-body {
-  margin: 0;
-  font-family: 'Zen Maru Gothic', sans-serif;
-  background-color: #FFF9E3;
+/* 🌸 Tiffany & Benjamin 專屬全域樣式 */
+:root {
+  --jp-cream: #FFF9E3;
+  --jp-pink: #FFD1DC;
+  --jp-brown: #8D775F;
+}
+
+@layer base {
+  html {
+    /* 防止手機瀏覽器彈跳效果影響體驗 */
+    -webkit-tap-highlight-color: transparent;
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply font-maru text-jp-brown bg-jp-cream;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden;
+  }
+}
+
+/* 自定義按鈕縮放效果 */
+.active-scale {
+  @apply active:scale-95 transition-transform duration-100;
+}
+
+/* 讓捲軸變可愛（Chrome/Safari） */
+::-webkit-scrollbar {
+  width: 5px;
+}
+::-webkit-scrollbar-track {
+  background: var(--jp-cream);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--jp-pink);
+  border-radius: 10px;
+}
+
+/* 確保 Splash Image 填滿螢幕 */
+.splash-container img {
+  width: 100vw;
+  height: 100vh;
+  object-fit: cover;
 }
