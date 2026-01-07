@@ -1,173 +1,202 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import React, { useState, useEffect } from 'react';
+import { motion, AnimatePresence, Reorder } from 'framer-motion';
 import { 
-  Plus, Clock, MapPin, ChevronDown, Trash2, Save, 
-  Navigation, ShoppingBag, PieChart, Ticket, CheckSquare, 
-  Train, Bus, Footprints, Plane, Ship, Link2, Target, Camera,
-  MoreVertical, Calendar, Globe, Download, Upload, Map as MapIcon
+  Plus, Clock, ChevronDown, Trash2, Save, MapPin, 
+  Navigation, ShoppingBag, PieChart, Calendar, Camera, Target, 
+  Car, Info, ExternalLink, Globe, FileDown, CheckCircle2
 } from 'lucide-react';
-import { calculateEndTime, calculateDuration, formatExcelData } from './utils';
+import * as XLSX from 'xlsx'; // 需執行 npm install xlsx
+
+// 1. 常量定義
+const CATEGORIES = ['吃喝', '購物', '精品', '景點活動', '拍照錄影', '集合地點'];
 
 export default function App() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('行程');
-  const [selectedDate, setSelectedDate] = useState('2026/01/01');
-  const [schedules, setSchedules] = useState<any[]>([]); // 已收編
-  const [backlog, setBacklog] = useState<any[]>([]); // 待編入行程區
+  const [schedules, setSchedules] = useState<any[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [tripInfo, setTripInfo] = useState({ name: "我們的日本之旅", dates: "2026/01/01 - 2026/01/07" });
 
   useEffect(() => {
-    setTimeout(() => setLoading(false), 2500);
+    const timer = setTimeout(() => setLoading(false), 2000);
+    return () => clearTimeout(timer);
   }, []);
 
-  const handleAddItem = () => {
-    const id = Date.now().toString();
-    const lastItem = schedules.filter(s => s.date === selectedDate).sort((a,b) => b.endTime.localeCompare(a.endTime))[0];
-    const startTime = lastItem ? lastItem.endTime.split(' ')[1] : "09:00";
-    
-    const newItem = {
-      id, type: 'spot', title: '', date: selectedDate, startTime, duration: '01:00',
-      endTime: calculateEndTime(selectedDate, startTime, '01:00'),
-      location: '', category: '吃喝', area: '', photoId: '', target: '', remark: '', openTime: '', mapUrl: '',
-      segments: []
-    };
-    setSchedules([newItem, ...schedules]);
-    setEditingId(id);
+  // --- 2. 核心時間邏輯：雙向同步與骨牌聯動 ---
+  const syncTimes = (item: any, changedField: string, newVal: string) => {
+    let { date, startTime, duration, endTime } = item;
+    if (changedField === 'startTime') startTime = newVal;
+    if (changedField === 'duration') duration = newVal;
+    if (changedField === 'endTime') {
+      const parts = newVal.split(' ');
+      endTime = newVal;
+      const [eH, eM] = parts[1].split(':').map(Number);
+      const [sH, sM] = startTime.split(':').map(Number);
+      let diffM = (eH * 60 + eM) - (sH * 60 + sM);
+      if (diffM < 0) diffM += 1440;
+      duration = `${String(Math.floor(diffM / 60)).padStart(2, '0')}:${String(diffM % 60).padStart(2, '0')}`;
+    } else {
+      const [sH, sM] = startTime.split(':').map(Number);
+      const [dH, dM] = duration.split(':').map(Number);
+      let totalM = sM + dM;
+      let totalH = sH + dH + Math.floor(totalM / 60);
+      endTime = `${date} ${String(totalH % 24).padStart(2, '0')}:${String(totalM % 60).padStart(2, '0')}`;
+    }
+    return { startTime, duration, endTime };
   };
 
-  if (loading) return <div className="fixed inset-0 z-[9999] bg-[#FFF9E3] flex items-center justify-center"><img src="/splash.jpeg" className="w-full h-full object-cover" /></div>;
+  const handleReorder = (newOrder: any[]) => {
+    if (newOrder.length === 0) return;
+    let currentStart = newOrder[0].startTime;
+    const syncedOrder = newOrder.map((item) => {
+      const updated = { ...item, startTime: currentStart };
+      const res = syncTimes(updated, 'startTime', currentStart);
+      currentStart = res.endTime.split(' ')[1];
+      return { ...updated, ...res };
+    });
+    setSchedules(syncedOrder);
+  };
+
+  // --- 3. Google Maps 導航編碼 ---
+  const openGoogleMap = (location: string) => {
+    if (!location) return;
+    const encoded = encodeURIComponent(location);
+    window.open(`https://www.google.com/maps/dir/?api=1&destination=${encoded}`, '_blank');
+  };
+
+  // --- 4. Excel 匯出：15分鐘一格邏輯 ---
+  const exportToExcel = () => {
+    const timeSlots: string[] = [];
+    for (let h = 0; h < 24; h++) {
+      for (let m = 0; m < 60; m += 15) {
+        timeSlots.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+      }
+    }
+
+    const data = timeSlots.map(slot => {
+      const row: any = { "時間": slot };
+      const event = schedules.find(s => slot >= s.startTime && slot < s.endTime.split(' ')[1]);
+      
+      if (event) {
+        row["行程內容"] = event.title;
+      } else {
+        const hour = parseInt(slot.split(':')[0]);
+        row["行程內容"] = (hour < 10 || hour >= 20) ? "Hotel/Rest (Grey)" : "";
+      }
+      return row;
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Schedule");
+    XLSX.writeFile(wb, "Travel_Plan_15min.xlsx");
+  };
+
+  if (loading) return <div className="fixed inset-0 z-50 bg-[#FFF9E3] flex items-center justify-center"><img src="/splash.jpeg" className="w-full h-full object-cover animate-pulse" /></div>;
 
   return (
-    <div className="min-h-screen bg-[#FFF9E3] font-maru text-[#8D775F] pb-32">
-      {/* Header */}
-      <header className="bg-white p-6 rounded-b-[40px] shadow-sm text-center border-b border-[#FFD1DC]/30">
-        <h1 className="text-xl font-bold text-[#FFD1DC]">{tripInfo.name}</h1>
-        <p className="text-[10px] opacity-40">{tripInfo.dates}</p>
+    <div className="min-h-screen bg-[#FFF9E3] font-maru text-[#8D775F] pb-28">
+      <header className="bg-white p-4 rounded-b-[40px] shadow-sm flex justify-between items-center px-6 border-b border-[#FFD1DC]/30">
+        <img src="/icon.png" className="w-6 h-6 rounded-md" />
+        <h1 className="text-sm font-bold text-[#FFD1DC] tracking-widest">TIFFANY & BENJAMIN</h1>
+        <button onClick={exportToExcel} className="text-[#FFD1DC]"><FileDown size={20}/></button>
       </header>
 
-      {/* 常駐 Tabs */}
-      <nav className="sticky top-0 z-40 bg-[#FFF9E3]/90 backdrop-blur-md flex justify-around p-3 border-b border-[#FFD1DC]/10">
-        {['行程', '導航', '憑證', '清單', '記帳'].map(t => (
-          <button key={t} onClick={() => setActiveTab(t)} className={`px-4 py-2 text-xs font-bold rounded-full transition-all ${activeTab === t ? 'bg-[#FFD1DC] text-white' : 'opacity-40'}`}>{t}</button>
-        ))}
-      </nav>
+      <main className="p-3 max-w-md mx-auto">
+        <Reorder.Group axis="y" values={schedules} onReorder={handleReorder} className="space-y-2">
+          {schedules.map(item => (
+            <Reorder.Item key={item.id} value={item} dragListener={!editingId}>
+              <Card 
+                item={item} 
+                isEditing={editingId === item.id}
+                onToggle={() => setEditingId(editingId === item.id ? null : item.id)}
+                onUpdate={(upd: any) => setSchedules(schedules.map(s => s.id === item.id ? {...s, ...upd} : s))}
+                onSync={(field: string, val: string) => setSchedules(schedules.map(s => s.id === item.id ? {...item, ...syncTimes(item, field, val)} : s))}
+                onDelete={() => setSchedules(schedules.filter(s => s.id !== item.id))}
+                openMap={openGoogleMap}
+              />
+            </Reorder.Item>
+          ))}
+        </Reorder.Group>
 
-      <main className="p-4 max-w-md mx-auto space-y-6">
-        {activeTab === '行程' && (
-          <>
-            {/* 日期選擇器 */}
-            <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
-              {["01.01(Thu)", "01.02(Fri)", "01.03(Sat)"].map(d => (
-                <button key={d} onClick={() => setSelectedDate(`2026/${d.split('(')[0].replace('.','/')}`)} className={`flex-shrink-0 px-4 py-2 rounded-2xl text-[11px] font-bold ${selectedDate.includes(d.split('(')[0].replace('.','/')) ? 'bg-[#FFD1DC] text-white' : 'bg-white opacity-50'}`}>{d}</button>
-              ))}
-            </div>
-
-            {/* 行程卡片列表 */}
-            <div className="space-y-4">
-              {schedules.filter(s => s.date === selectedDate).map(item => (
-                <ScheduleCard key={item.id} item={item} isEditing={editingId === item.id} onToggle={() => setEditingId(editingId === item.id ? null : item.id)} onUpdate={(upd: any) => setSchedules(schedules.map(s => s.id === item.id ? {...s, ...upd} : s))} onDelete={() => setSchedules(schedules.filter(s => s.id !== item.id))} />
-              ))}
-            </div>
-
-            {/* 待編入行程區 */}
-            <div className="pt-10 border-t-2 border-dashed border-[#FFD1DC]/30">
-              <h4 className="text-center text-[10px] opacity-40 mb-4 tracking-widest uppercase">有待編入行程區</h4>
-              {backlog.map(item => <ScheduleCard key={item.id} item={item} />)}
-              {backlog.length === 0 && <div className="text-center py-8 bg-white/30 rounded-[30px] text-[10px] italic opacity-30">目前沒有暫存行程</div>}
-            </div>
-          </>
-        )}
+        {/* 有待編入行程區 */}
+        <div className="mt-8 opacity-30 border-t-2 border-dashed border-[#FFD1DC] pt-4 text-center text-[10px] font-bold">有待編入行程區 (尚未定時)</div>
       </main>
 
-      {/* Floating Save & Add */}
-      <div className="fixed bottom-24 right-6 flex flex-col gap-3 z-50">
-        <button onClick={() => formatExcelData(schedules)} className="w-12 h-12 bg-green-400 text-white rounded-full shadow-lg flex items-center justify-center"><Download size={20}/></button>
-        <button onClick={handleAddItem} className="w-14 h-14 bg-[#FFD1DC] text-white rounded-full shadow-2xl flex items-center justify-center border-4 border-white"><Plus size={30} /></button>
-      </div>
+      <button onClick={() => {
+        const id = Date.now().toString();
+        const newItem = { id, title: '', startTime: '09:00', duration: '01:00', endTime: '2026/01/01 10:00', date: '2026/01/01', category: '景點活動', segments: [] };
+        setSchedules([...schedules, newItem]);
+        setEditingId(id);
+      }} className="fixed bottom-24 right-6 w-14 h-14 bg-[#FFD1DC] text-white rounded-full shadow-xl flex items-center justify-center border-4 border-white active:scale-90 z-50">
+        <Plus size={30} />
+      </button>
 
-      <div className="text-center py-10 opacity-10 text-[10px] font-bold">🌸 TIFFANY & BENJAMIN 🌸</div>
+      {/* 底部導覽欄 */}
+      <nav className="fixed bottom-0 w-full bg-white/95 h-18 border-t flex items-center justify-around px-6 pb-2">
+        <div onClick={() => setActiveTab('導航')} className={`flex flex-col items-center ${activeTab === '導航' ? 'text-[#FFD1DC]' : 'opacity-20'}`}><Navigation size={22}/><span className="text-[8px]">導航</span></div>
+        <div onClick={() => setActiveTab('行程')} className={`flex flex-col items-center ${activeTab === '行程' ? 'text-[#FFD1DC]' : 'opacity-20'}`}><Calendar size={22}/><span className="text-[8px] font-bold">行程</span></div>
+        <div onClick={() => setActiveTab('記帳')} className={`flex flex-col items-center ${activeTab === '記帳' ? 'text-[#FFD1DC]' : 'opacity-20'}`}><PieChart size={22}/><span className="text-[8px]">記帳</span></div>
+      </nav>
     </div>
   );
 }
 
-// --- 卡片組件 ---
-function ScheduleCard({ item, isEditing, onToggle, onUpdate, onDelete }: any) {
-  const isTransport = item.type === 'transport';
-  
+// --- 卡片組件 (緊湊且全功能) ---
+function Card({ item, isEditing, onToggle, onUpdate, onSync, onDelete, openMap }: any) {
   return (
-    <div className={`bg-white rounded-[30px] shadow-sm border-2 overflow-hidden transition-all ${isEditing ? 'border-[#FFD1DC]' : 'border-transparent'}`}>
-      <div className="p-5 cursor-pointer flex justify-between items-center" onClick={onToggle}>
-        <div className="flex items-center gap-3">
-          <div className="text-[10px] font-black text-[#FFD1DC]">{item.startTime}</div>
-          <h3 className="font-bold">{item.title || (isTransport ? `${item.startLoc} ➜ ${item.endLoc}` : "新行程")}</h3>
+    <div className={`bg-white rounded-[28px] shadow-sm border transition-all ${isEditing ? 'border-[#FFD1DC]' : 'border-transparent'}`}>
+      <div className="p-4 flex justify-between items-center" onClick={onToggle}>
+        <div className="flex items-center gap-3 overflow-hidden">
+          <div className="text-[10px] font-black text-[#FFD1DC] bg-[#FFF9E3] px-2 py-0.5 rounded-full shrink-0">{item.startTime}</div>
+          <h3 className="text-sm font-bold truncate">{item.title || "新行程"}</h3>
         </div>
-        <ChevronDown size={18} className={`text-[#FFD1DC] transition-transform ${isEditing ? 'rotate-180' : ''}`} />
+        <div className="flex items-center gap-2">
+           {item.title && <button onClick={(e) => { e.stopPropagation(); openMap(item.title); }} className="text-[#FFD1DC] opacity-40 hover:opacity-100"><Navigation size={14}/></button>}
+           <ChevronDown size={16} className={`text-[#FFD1DC] transition-transform ${isEditing ? 'rotate-180' : ''}`} />
+        </div>
       </div>
 
       <AnimatePresence>
         {isEditing && (
-          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="bg-[#FFF9E3]/30 p-5 space-y-4">
-            <div className="flex bg-white p-1 rounded-xl shadow-inner border border-[#FFD1DC]/20">
-              <button onClick={() => onUpdate({type:'spot'})} className={`flex-1 py-2 text-[10px] font-bold rounded-lg ${item.type === 'spot' ? 'bg-[#FFD1DC] text-white' : 'opacity-30'}`}>景點活動</button>
-              <button onClick={() => onUpdate({type:'transport'})} className={`flex-1 py-2 text-[10px] font-bold rounded-lg ${item.type === 'transport' ? 'bg-blue-400 text-white' : 'opacity-30'}`}>交通</button>
-            </div>
+          <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }} className="bg-[#FFF9E3]/10 border-t border-gray-50 overflow-hidden">
+            <div className="p-4 space-y-3">
+              <input placeholder="行程名稱*" className="in-box text-sm font-bold" value={item.title} onChange={e => onUpdate({title: e.target.value})} />
+              
+              <div className="grid grid-cols-2 gap-2">
+                <div className="in-box-sub"><label className="label-xs">開始</label><input type="time" className="w-full bg-transparent text-xs" value={item.startTime} onChange={e => onSync('startTime', e.target.value)} /></div>
+                <div className="in-box-sub"><label className="label-xs">時長</label><input placeholder="01:00" className="w-full bg-transparent text-xs font-bold" value={item.duration} onChange={e => onSync('duration', e.target.value)} /></div>
+              </div>
 
-            {item.type === 'spot' ? (
-              /* 12 欄位實作 */
-              <div className="grid grid-cols-1 gap-3">
-                <input placeholder="行程名稱*" className="in-f font-bold" value={item.title} onChange={e => onUpdate({title: e.target.value})} />
-                <div className="grid grid-cols-2 gap-2">
-                  <div className="in-f"><label className="lb">開始時間</label><input type="time" value={item.startTime} onChange={e => onUpdate({startTime: e.target.value, endTime: calculateEndTime(item.date, e.target.value, item.duration)})} /></div>
-                  <div className="in-f"><label className="lb">時長 (hh:mm)</label><input value={item.duration} onChange={e => onUpdate({duration: e.target.value, endTime: calculateEndTime(item.date, item.startTime, e.target.value)})} /></div>
-                </div>
-                <div className="in-f bg-pink-50/50"><label className="lb text-[#FFD1DC]">完結時間 (自動更新)</label><div className="text-xs font-bold">{item.endTime}</div></div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input placeholder="區域/商圈" className="in-f" value={item.area} />
-                  <select className="in-f" value={item.category} onChange={e => onUpdate({category: e.target.value})}>
-                    {['吃喝','購物','精品','景點活動','拍照錄影','集合地點','備註'].map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  <input placeholder="照片編號" className="in-f" />
-                  <input placeholder="目標" className="in-f" />
-                </div>
-                <input placeholder="Google Map 網址" className="in-f text-[10px]" value={item.mapUrl} />
-                <textarea placeholder="備註" className="in-f h-20 text-xs" />
+              <div className="bg-white p-2 rounded-xl border border-[#FFD1DC]/20 flex justify-between items-center">
+                 <label className="text-[9px] font-bold text-[#FFD1DC]">🏁 完結時間</label>
+                 <input className="text-xs font-bold text-[#FFD1DC] text-right bg-transparent outline-none" value={item.endTime} onChange={e => onSync('endTime', e.target.value)} />
               </div>
-            ) : (
-              /* 交通多段格式 */
-              <div className="space-y-4">
-                <div className="flex gap-2 items-center bg-blue-50/50 p-3 rounded-2xl">
-                  <input placeholder="起始" className="w-full text-center font-bold bg-transparent" value={item.startLoc} />
-                  <span className="text-blue-300">➜</span>
-                  <input placeholder="終點" className="w-full text-center font-bold bg-transparent" value={item.endLoc} />
-                </div>
-                <div className="pl-4 border-l-2 border-blue-200 space-y-4">
-                  {item.segments?.map((seg: any, idx: number) => (
-                    <div key={idx} className="bg-white p-4 rounded-2xl shadow-sm space-y-2 border border-blue-50 relative">
-                      <select className="text-[10px] font-bold text-blue-500 bg-blue-50 px-2 py-1 rounded-lg outline-none border-none">
-                        <option>地鐵</option><option>步行</option><option>巴士</option>
-                      </select>
-                      <input placeholder="路線名稱 (方向)" className="w-full text-[10px] outline-none" />
-                      <div className="flex gap-2 text-[10px]">
-                        <input placeholder="上車站" className="flex-1 bg-gray-50 p-2 rounded-lg" />
-                        <input placeholder="下車站" className="flex-1 bg-gray-50 p-2 rounded-lg" />
-                      </div>
-                    </div>
-                  ))}
-                  <button onClick={() => onUpdate({segments: [...(item.segments||[]), {id: Date.now()}]})} className="w-full py-2 border-2 border-dashed border-blue-100 rounded-xl text-blue-300 text-[10px] font-bold">+ 增加分段描述</button>
-                </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <select className="in-box text-xs" value={item.category} onChange={e => onUpdate({category: e.target.value})}>
+                  {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+                </select>
+                <input placeholder="區域/商圈" className="in-box text-xs" value={item.area} onChange={e => onUpdate({area: e.target.value})} />
               </div>
-            )}
-            
-            <div className="flex gap-2 pt-4">
-              <button className="flex-1 bg-[#8D775F] text-white py-3 rounded-full font-bold shadow-lg flex items-center justify-center gap-2"><Save size={16}/> Save</button>
-              <button onClick={onDelete} className="w-12 bg-red-50 text-red-400 rounded-full flex items-center justify-center border border-red-100"><Trash2 size={16}/></button>
+
+              <div className="flex gap-2 text-[10px]">
+                <input placeholder="📸 照片編號" className="in-box w-1/3" value={item.photoId} onChange={e => onUpdate({photoId: e.target.value})} />
+                <input placeholder="🎯 目標" className="in-box w-2/3" value={item.target} onChange={e => onUpdate({target: e.target.value})} />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button className="flex-1 bg-[#8D775F] text-white py-3 rounded-full text-xs font-bold shadow-lg flex items-center justify-center gap-1 active:scale-95 transition-all"><CheckCircle2 size={14}/> 儲存</button>
+                <button onClick={() => { if(window.confirm('確定刪除此行程嗎？')) onDelete(); }} className="px-4 bg-red-50 text-red-300 rounded-full border border-red-100"><Trash2 size={16}/></button>
+              </div>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+      <style>{`
+        .in-box { width: 100%; background: white; padding: 8px 12px; border-radius: 15px; border: 1px solid #FFD1DC20; outline: none; }
+        .in-box-sub { background: white; padding: 6px 10px; border-radius: 15px; border: 1px solid #FFD1DC20; }
+        .label-xs { display: block; font-size: 8px; opacity: 0.3; font-weight: bold; text-transform: uppercase; }
+      `}</style>
     </div>
   );
 }
